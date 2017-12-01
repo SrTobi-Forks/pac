@@ -31,6 +31,7 @@ __email__ = 'email@ricardo.band'
 
 import os
 import sys
+import shutil
 from typing import List
 from subprocess import call, run, PIPE
 
@@ -103,7 +104,7 @@ def search(search_term: str) -> List[dict]:
     return result
 
 
-def present(entries: List[dict]):
+def present(entries: List[dict], useLimit: bool, limit: int, startAtLimit: bool):
     """
     Present the list of entries with numbers in front of it. For each package it displays 2 lines like this:
 
@@ -128,9 +129,18 @@ def present(entries: List[dict]):
     CYELLOWBG: str = '\33[43m'
     CYELLOWBG2: str = '\33[103m'
 
-    for index, entry in enumerate(entries):
+    if not useLimit:
+        showEntries = entries
+    elif startAtLimit:
+        showEntries = entries[limit:]
+    else:
+        showEntries = entries[:limit]
+
+
+    for index, entry in enumerate(showEntries):
         padding = len(str(index + 1))
-        print(f"{CBLACK}{CYELLOWBG}{index + 1}{CEND} {CVIOLET2}{entry['repo']}/{CEND}{CBOLD}{entry['package']}{CEND} {CGREEN2}{entry['version']}{CEND}", end='')
+        showIndex = index + 1 + (limit if startAtLimit else 0) 
+        print(f"{CBLACK}{CYELLOWBG}{showIndex}{CEND} {CVIOLET2}{entry['repo']}/{CEND}{CBOLD}{entry['package']}{CEND} {CGREEN2}{entry['version']}{CEND}", end='')
         if entry['group']:
             print(f" {entry['group']}", end='')
         if entry['installed']:
@@ -139,6 +149,8 @@ def present(entries: List[dict]):
             print(f" {CBLACK}{CYELLOWBG2}{entry['votes']}{CEND}", end='')
         print(f"\n{' ' * len(str(index + 1))} {entry['description']}")
     print(f'{CYELLOW2}==>{CEND} {CBOLD}Enter n° of packages to be installed (ex: 1 2 3 or 1-3){CEND}')
+    if useLimit and not startAtLimit:
+        print(f'{CYELLOW2}==>{CEND} {CVIOLET2}{CBOLD}There are {len(entries) - limit} more aur packages (press enter to see) {CEND}')
     print(f'{CYELLOW2}==>{CEND} {CBOLD}-------------------------------------------------------{CEND}')
 
 
@@ -191,6 +203,20 @@ def autoremove():
         except KeyboardInterrupt:
             pass
 
+def readUserInput():
+    return input('\33[93m==>\33[0m ').strip()
+
+def countNonAurEntries(entries: List[dict]):
+    for idx, entry in enumerate(entries):
+        if entry['repo'] == 'aur':
+            return idx
+    return len(entries)
+
+def getTerminalHeight():
+    fallbackHeight = 20
+    # https://stackoverflow.com/a/14422538/1393971
+    terminal_size = shutil.get_terminal_size((fallbackHeight, fallbackHeight))
+    return terminal_size.lines
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
@@ -217,8 +243,14 @@ if __name__ == '__main__':
             try:
                 entries = search(' '.join(sys.argv[1:]))
                 if len(entries) > 0:
-                    present(entries)
-                    numbers = parse_num(input('\33[93m==>\33[0m ').strip())
+                    maxEntries = max((getTerminalHeight() - 5)// 2, countNonAurEntries(entries))
+                    useLimit = len(entries) > maxEntries
+                    present(entries, useLimit, maxEntries, False)
+                    userInput = readUserInput()
+                    if useLimit and userInput == '':
+                        present(entries, True, maxEntries, True)
+                        userInput = readUserInput()
+                    numbers = parse_num(userInput)
                     install(numbers, entries, pacaurargs)
                 else:
                     print('Nothing found.')
